@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADARSH GYMNESIUM | Unleash Your Inner Beast</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons -->
+    <script type="module">
+        import { createIcons, icons } from 'https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.js';
+        window.createIcons = createIcons;
+    </script>
+    <style>
+        /* Define a custom, high-contrast palette and font */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Oswald:wght@200..700&display=swap');
+        :root {
+            --color-dark: #121212;
+            --color-red: #E53E3E; /* Tailwind red-600 equivalent */
+            --color-accent: #FCB35F; /* Neon-like yellow/orange for highlight */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--color-dark);
+            color: #F3F4F6;
+        }
+        h1, h2, h3 {
+            font-family: 'Oswald', sans-serif;
+            text-transform: uppercase;
+        }
+        .text-neon-red { color: var(--color-red); }
+        .bg-neon-red { background-color: var(--color-red); }
+        .border-neon-red { border-color: var(--color-red); }
+        .shadow-glow { box-shadow: 0 0 15px rgba(229, 62, 62, 0.5); }
+        
+        .cta-btn {
+            transition: transform 0.2s, box-shadow 0.3s, background-color 0.3s;
+        }
+        .cta-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(229, 62, 62, 0.6);
+        }
+        .card-hover:hover {
+            transform: scale(1.02);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+        /* Custom spinner for loading state */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Navbar -->
+    <header class="bg-black/80 backdrop-blur-md sticky top-0 z-50 border-b border-red-600/30">
+        <nav class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <h1 class="text-3xl font-extrabold text-white tracking-wider">
+                ADARSH<span class="text-neon-red">GYM</span>
+            </h1>
+            <div id="nav-links" class="flex items-center space-x-4 md:space-x-8">
+                <button onclick="navigate('home')" class="text-white hover:text-neon-red transition duration-300 font-medium tracking-wide text-sm md:text-base">HOME</button>
+                <button onclick="navigate('facilities')" class="text-white hover:text-neon-red transition duration-300 font-medium tracking-wide text-sm md:text-base">FACILITIES</button>
+                <button onclick="navigate('dashboard')" id="dashboard-nav-btn" class="bg-neon-red text-white px-4 py-2 rounded-full font-bold hover:bg-red-700 transition duration-300 shadow-glow text-sm md:text-base">
+                    DASHBOARD
+                </button>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Main Content Area -->
+    <main id="app-container" class="flex-grow"></main>
+
+    <!-- Footer -->
+    <footer class="bg-black/80 mt-16 py-8 border-t border-red-500/10">
+        <div class="container mx-auto px-4 text-center text-gray-500">
+            <p>&copy; 2025 ADARSH GYMNESIUM. Strength | Dedication | Excellence.</p>
+            <p id="footer-user-id" class="text-xs mt-3 opacity-75">User ID: Loading...</p>
+        </div>
+    </footer>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, limit, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Expose Firebase functions to the global scope
+        window.firebase = {
+            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut,
+            getFirestore, doc, setDoc, onSnapshot, collection, query, limit, getDocs
+        };
+        window.setLogLevel = setLogLevel;
+        
+        window.dispatchEvent(new CustomEvent('firebase-ready'));
+    </script>
+
+    <script>
+        // Set Firebase logging level to Debug
+        if (typeof setLogLevel !== 'undefined') {
+            setLogLevel('Debug');
+        }
+
+        // --- GLOBAL STATE & FIREBASE INIT ---
+        let db, auth;
+        let userId = null;
+        let isAuthReady = false;
+        let userData = { 
+            membershipStatus: 'Inactive', 
+            workoutPlan: [], // Structured plan: [{day: 'Monday', focus: 'Chest'}, ...]
+            progressTracker: [] // [{date: '2024-01-01', exercise: 'Squat', weight: 150, reps: 5}]
+        };
+        let currentPage = 'home';
+        
+        // Environment variables
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        const appContainer = document.getElementById('app-container');
+        const footerUserIdEl = document.getElementById('footer-user-id');
+
+        window.addEventListener('firebase-ready', async () => {
+            if (!firebaseConfig) {
+                appContainer.innerHTML = '<div class="text-center p-8 text-red-400">Error: Firebase configuration is missing. Dynamic features disabled.</div>';
+                renderPage(); 
+                return;
+            }
+
+            try {
+                const app = firebase.initializeApp(firebaseConfig);
+                db = firebase.getFirestore(app);
+                auth = firebase.getAuth(app);
+                
+                if (initialAuthToken) {
+                    await firebase.signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await firebase.signInAnonymously(auth);
+                }
+
+                firebase.onAuthStateChanged(auth, (user) => {
+                    isAuthReady = true;
+                    if (user) {
+                        userId = user.uid;
+                        footerUserIdEl.textContent = `User ID: ${userId}`;
+                        startDataListeners();
+                    } else {
+                        userId = null;
+                        resetUserData();
+                        footerUserIdEl.textContent = 'User ID: Not Authenticated';
+                    }
+                    renderPage();
+                });
+
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                appContainer.innerHTML = `<div class="text-center p-8 text-red-400">Init Error: ${error.message}</div>`;
+            }
+        });
+
+        function resetUserData() {
+            userData = { 
+                membershipStatus: 'Inactive', 
+                workoutPlan: [
+                    { day: 'Monday', focus: 'Chest & Triceps' },
+                    { day: 'Tuesday', focus: 'Back & Biceps' },
+                    { day: 'Wednesday', focus: 'Cardio & Abs' },
+                    { day: 'Thursday', focus: 'Shoulders & Legs' },
+                    { day: 'Friday', focus: 'Full Body HIIT' }
+                ],
+                progressTracker: []
+            };
+        }
+        resetUserData(); // Set initial mock data
+
+        // --- FIREBASE DATA HANDLING ---
+
+        const getPrivateDocRef = () => firebase.doc(db, `artifacts/${appId}/users/${userId}/gymData/profile`);
+
+        function startDataListeners() {
+            const docRef = getPrivateDocRef();
+            firebase.onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    // Ensure arrays are initialized if data is missing
+                    userData = {
+                        membershipStatus: data.membershipStatus || 'Inactive',
+                        workoutPlan: data.workoutPlan || [],
+                        progressTracker: data.progressTracker || []
+                    };
+                } else {
+                    // Document doesn't exist, use initial data
+                    resetUserData();
+                    // Create the document with initial data
+                    saveUserData({}); 
+                }
+                if (currentPage === 'dashboard') {
+                    renderDashboard();
+                }
+            }, (error) => {
+                console.error("Error listening to user data:", error);
+            });
+        }
+
+        async function saveUserData(updates) {
+            if (!db || !userId) {
+                alertUser('Error: Authentication required to save data.', 'error');
+                return;
+            }
+            const docRef = getPrivateDocRef();
+            try {
+                await firebase.setDoc(docRef, {
+                    ...userData, // Current state
+                    ...updates,  // New updates
+                    lastUpdate: new Date().toISOString()
+                }, { merge: true });
+                alertUser('Profile updated successfully!', 'success');
+            } catch (e) {
+                console.error("Error updating document:", e);
+                alertUser(`Failed to save data: ${e.message}`, 'error');
+            }
+        }
+
+        // --- UI UTILITIES & ROUTING ---
+
+        function alertUser(message, type = 'info') {
+            const alertBox = document.createElement('div');
+            const color = type === 'success' ? 'bg-green-600' : type === 'error' ? 'bg-red-600' : 'bg-blue-600';
+            
+            alertBox.className = `${color} text-white px-4 py-3 rounded-xl shadow-xl fixed top-4 md:top-6 right-4 z-[100] transition-opacity duration-300`;
+            alertBox.textContent = message;
+            
+            document.body.appendChild(alertBox);
+            
+            setTimeout(() => {
+                alertBox.style.opacity = '0';
+                setTimeout(() => alertBox.remove(), 300);
+            }, 3000);
+        }
+
+        window.navigate = function(page) {
+            currentPage = page;
+            renderPage();
+            window.scrollTo(0, 0);
+        };
+        
+        function renderPage() {
+            window.location.hash = currentPage;
+            
+            appContainer.innerHTML = ''; // Clear container
+
+            if (currentPage === 'home') renderHome();
+            else if (currentPage === 'facilities') renderFacilities();
+            else if (currentPage === 'dashboard') renderDashboard();
+            
+            // Re-run icon rendering
+            if (typeof window.createIcons === 'function') {
+                window.createIcons();
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            const hash = window.location.hash.replace('#', '');
+            if (['facilities', 'dashboard'].includes(hash)) {
+                currentPage = hash;
+            }
+            renderPage();
+        });
+
+
+        // --- PAGE RENDERS ---
+
+        function renderHome() {
+            appContainer.innerHTML = `
+                <!-- Hero Section -->
+                <section class="relative h-[80vh] bg-cover bg-center flex items-center" 
+                    style="background-image: url('https://placehold.co/1920x1080/000000/F3F4F6?text=ADARSH+GYM+High+Intensity+Training'); background-position: center 60%;">
+                    <div class="absolute inset-0 bg-black/70"></div>
+                    <div class="container mx-auto px-4 z-10 text-center">
+                        <h2 class="text-3xl md:text-5xl font-extrabold text-neon-red mb-3 tracking-widest">
+                            ADARSH GYMNESIUM
+                        </h2>
+                        <p class="text-6xl md:text-9xl font-black text-white leading-none mb-6 shadow-glow">
+                            UNLEASH YOUR STRENGTH
+                        </p>
+                        <p class="text-lg md:text-2xl text-gray-300 max-w-4xl mx-auto mb-10">
+                            Where discipline meets development. Join a community dedicated to peak performance and holistic fitness.
+                        </p>
+                        <button onclick="navigate('dashboard')" class="cta-btn px-12 py-4 bg-neon-red text-white text-xl font-bold rounded-xl hover:bg-red-700 shadow-glow uppercase">
+                            Start Your Free Trial
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Gym Overview Section -->
+                <section class="py-16 bg-gray-900">
+                    <div class="container mx-auto px-4">
+                        <h3 class="text-5xl font-black text-center mb-12 text-white">THE ADARSH DIFFERENCE</h3>
+                        <div class="grid md:grid-cols-3 gap-8">
+                            <div class="bg-[#1e1e1e] p-6 rounded-xl shadow-2xl card-hover transform transition duration-300 border-t-4 border-neon-red">
+                                <span data-lucide="zap" class="text-neon-red w-10 h-10 mb-4"></span>
+                                <h4 class="text-2xl font-bold text-white mb-2">PERFORMANCE FOCUSED</h4>
+                                <p class="text-gray-400">Industry-leading equipment optimized for professional-level training and results.</p>
+                            </div>
+                            <div class="bg-[#1e1e1e] p-6 rounded-xl shadow-2xl card-hover transform transition duration-300 border-t-4 border-neon-red">
+                                <span data-lucide="heart-pulse" class="text-neon-red w-10 h-10 mb-4"></span>
+                                <h4 class="text-2xl font-bold text-white mb-2">EXPERT GUIDANCE</h4>
+                                <p class="text-gray-400">Access to 18+ certified trainers specializing in nutrition, strength, and recovery.</p>
+                            </div>
+                            <div class="bg-[#1e1e1e] p-6 rounded-xl shadow-2xl card-hover transform transition duration-300 border-t-4 border-neon-red">
+                                <span data-lucide="clock" class="text-neon-red w-10 h-10 mb-4"></span>
+                                <h4 class="text-2xl font-bold text-white mb-2">24/7 ACCESS</h4>
+                                <p class="text-gray-400">Train on your schedule. Premium membership includes round-the-clock facility access.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Membership Call to Action -->
+                <section class="py-16">
+                    <div class="container mx-auto px-4 text-center">
+                        <h3 class="text-5xl font-black text-neon-red mb-4">JOIN 4,200+ MOTIVATED MEMBERS</h3>
+                        <p class="text-xl text-gray-400 mb-8">It's time to stop waiting and start lifting. Find the perfect membership plan for you.</p>
+                        <button onclick="navigate('dashboard')" class="cta-btn px-10 py-3 bg-white text-dark text-xl font-bold rounded-xl hover:bg-gray-200 transition duration-300">
+                            VIEW MEMBERSHIP OPTIONS
+                        </button>
+                    </div>
+                </section>
+            `;
+        }
+
+        function renderFacilities() {
+            appContainer.innerHTML = `
+                <section class="py-16 container mx-auto px-4">
+                    <h2 class="text-5xl font-black text-center mb-4 text-white">WORLD-CLASS TRAINING ENVIRONMENT</h2>
+                    <p class="text-xl text-center text-gray-400 mb-12">Every corner of Adarsh Gymnasium is designed to push limits and ensure comfort.</p>
+
+                    <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <!-- Facility Card 1 -->
+                        <div class="bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-700 card-hover transform transition duration-300">
+                            <span data-lucide="dumbbell" class="text-neon-red w-12 h-12 mb-4"></span>
+                            <h4 class="text-2xl font-bold text-white mb-2">STRENGTH ZONE</h4>
+                            <p class="text-gray-400">10+ Power Racks, Deadlift Platforms, calibrated bars, and a full range of dumbbells up to 150 lbs.</p>
+                        </div>
+                        <!-- Facility Card 2 -->
+                        <div class="bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-700 card-hover transform transition duration-300">
+                            <span data-lucide="bike" class="text-neon-red w-12 h-12 mb-4"></span>
+                            <h4 class="text-2xl font-bold text-white mb-2">CARDIO LAB</h4>
+                            <p class="text-gray-400">Technogym treadmills, StairMasters, SkiErgs, and Assault Bikes for superior endurance training.</p>
+                        </div>
+                        <!-- Facility Card 3 -->
+                        <div class="bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-700 card-hover transform transition duration-300">
+                            <span data-lucide="person-standing" class="text-neon-red w-12 h-12 mb-4"></span>
+                            <h4 class="text-2xl font-bold text-white mb-2">FUNCTIONAL AREA</h4>
+                            <p class="text-gray-400">Large open space with turf, sleds, battle ropes, and kettlebells for dynamic movements.</p>
+                        </div>
+                        <!-- Facility Card 4 -->
+                        <div class="bg-gray-900 p-6 rounded-xl shadow-lg border border-gray-700 card-hover transform transition duration-300">
+                            <span data-lucide="shower-head" class="text-neon-red w-12 h-12 mb-4"></span>
+                            <h4 class="text-2xl font-bold text-white mb-2">LUXURY AMENITIES</h4>
+                            <p class="text-gray-400">Clean, spacious locker rooms, private showers, and a protein smoothie bar.</p>
+                        </div>
+                    </div>
+                </section>
+            `;
+        }
+
+        function renderDashboard() {
+            appContainer.innerHTML = `
+                <div class="container mx-auto px-4 py-12">
+                    <header class="mb-10 flex flex-col md:flex-row justify-between items-start md:items-center border-b-2 border-neon-red/50 pb-4">
+                        <h2 class="text-5xl font-black text-white">MEMBER DASHBOARD</h2>
+                        <button onclick="handleSignOut()" class="flex items-center space-x-2 text-red-400 hover:text-neon-red transition duration-200 mt-4 md:mt-0">
+                            <span data-lucide="log-out" class="w-5 h-5"></span>
+                            <span class="font-semibold">Sign Out</span>
+                        </button>
+                    </header>
+
+                    <div class="grid lg:grid-cols-3 gap-8">
+                        
+                        <!-- Col 1: Profile & Status -->
+                        <div class="lg:col-span-1 space-y-8">
+                            ${renderMembershipCard()}
+                            ${renderPaymentOptions()} <!-- NEW PAYMENT OPTIONS CARD -->
+                            ${renderUpdatesCard()}
+                        </div>
+                        
+                        <!-- Col 2 & 3: Tracker & Plan -->
+                        <div class="lg:col-span-2 space-y-8">
+                            ${renderWorkoutPlanEditor()}
+                            ${renderProgressTracker()}
+                        </div>
+                    </div>
+                </div>
+            `;
+            // Re-run icon rendering after DOM update
+            if (typeof window.createIcons === 'function') {
+                window.createIcons();
+            }
+        }
+
+        function renderMembershipCard() {
+            const statusColor = userData.membershipStatus === 'Active' ? 'bg-green-600' : 'bg-yellow-600';
+            return `
+                <div class="bg-gray-900 p-6 rounded-xl shadow-xl border border-gray-700">
+                    <h3 class="text-3xl font-bold text-neon-red mb-4 flex items-center space-x-2">
+                        <span data-lucide="credit-card" class="w-7 h-7"></span>
+                        <span>MEMBERSHIP CARD</span>
+                    </h3>
+                    <div class="p-6 rounded-lg ${statusColor} text-white font-bold text-center text-xl tracking-wider uppercase mb-4">
+                        Status: ${userData.membershipStatus}
+                    </div>
+                    <p class="text-gray-300 mb-4"><strong>Member ID:</strong> <span class="font-mono text-sm">${userId}</span></p>
+                    
+                    <h4 class="font-bold text-white mb-2">Adjust Status (Admin Only):</h4>
+                    <select id="membership-select" class="w-full bg-gray-700 text-white p-3 rounded-lg border border-gray-600 focus:ring-neon-red focus:border-neon-red">
+                        <option value="Active" ${userData.membershipStatus === 'Active' ? 'selected' : ''}>Active</option>
+                        <option value="Trial" ${userData.membershipStatus === 'Trial' ? 'selected' : ''}>Trial</option>
+                        <option value="Inactive" ${userData.membershipStatus === 'Inactive' ? 'selected' : ''}>Inactive</option>
+                    </select>
+                    <button onclick="updateMembershipStatus()" class="w-full mt-4 py-3 bg-neon-red text-white font-bold rounded-lg hover:bg-red-700 transition duration-200 uppercase">
+                        Save Status
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderPaymentOptions() {
+            if (userData.membershipStatus === 'Active') {
+                return `
+                    <div class="bg-green-900/50 p-6 rounded-xl shadow-xl border border-green-600">
+                        <h3 class="text-3xl font-bold text-green-400 mb-2 flex items-center space-x-2">
+                            <span data-lucide="check-circle" class="w-7 h-7"></span>
+                            <span>MEMBERSHIP ACTIVE</span>
+                        </h3>
+                        <p class="text-gray-300">You currently have full access to all ADARSH GYMNESIUM features.</p>
+                    </div>
+                `;
+            }
+
+            const tiers = [
+                { name: 'Standard', price: '₹999 / Month', color: 'bg-gray-600', hover: 'hover:bg-gray-700', features: ['24/7 Access', 'Basic Equipment', 'Showers'] },
+                { name: 'Elite', price: '₹1,999 / Month', color: 'bg-neon-red', hover: 'hover:bg-red-700', features: ['All Standard', 'Personalized Plan Access', 'Smoothie Bar Discount'] },
+                { name: 'Beast Mode', price: '₹4,999 / Quarter', color: 'bg-yellow-600', hover: 'hover:bg-yellow-700', features: ['All Elite', '1-on-1 Trainer Session (Monthly)', 'Priority Rack Booking'] },
+            ];
+
+            const tierHtml = tiers.map((tier, index) => `
+                <div class="p-4 rounded-lg bg-gray-800 border-t-4 ${index === 1 ? 'border-neon-red' : 'border-gray-700'}">
+                    <h4 class="text-xl font-bold text-white">${tier.name}</h4>
+                    <p class="text-2xl font-black ${index === 1 ? 'text-neon-red' : 'text-white'} my-2">${tier.price}</p>
+                    <ul class="text-sm text-gray-400 space-y-1 mb-4 h-20">
+                        ${tier.features.map(f => `<li><span data-lucide="check" class="w-4 h-4 inline mr-1 text-green-400"></span>${f}</li>`).join('')}
+                    </ul>
+                    <button id="pay-btn-${tier.name}" onclick="simulatePayment('${tier.name}', this)" class="w-full py-2 ${tier.color} text-white font-bold rounded-lg ${tier.hover} transition duration-200 uppercase flex items-center justify-center space-x-2">
+                        <span id="pay-icon-${tier.name}" data-lucide="credit-card" class="w-5 h-5"></span>
+                        <span id="pay-text-${tier.name}">Pay Now</span>
+                    </button>
+                </div>
+            `).join('');
+
+            return `
+                <div class="bg-gray-900 p-6 rounded-xl shadow-xl border border-gray-700">
+                    <h3 class="text-3xl font-bold text-white mb-4 flex items-center space-x-2">
+                        <span data-lucide="wallet" class="w-7 h-7 text-neon-red"></span>
+                        <span>MEMBERSHIP PAYMENT</span>
+                    </h3>
+                    <p class="text-gray-400 mb-4">Select your desired plan to gain **Active** status.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        ${tierHtml}
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderUpdatesCard() {
+            // Mock Public Updates since the previous version lacked a public updates collection setup
+            const mockUpdates = [
+                { title: 'New PR Board Launched', message: 'Check out the new feature below to log your personal records!', date: '2025-10-30' },
+                { title: 'Holiday Class Schedule', message: 'Special timings for Diwali and Christmas classes are available at the front desk.', date: '2025-10-25' },
+                { title: 'Facility Maintenance', message: 'Squat Rack 3 will be briefly unavailable on Monday morning for tune-up.', date: '2025-10-22' }
+            ];
+
+            const updatesHtml = mockUpdates.map(update => `
+                <div class="bg-gray-800 p-4 rounded-lg border border-gray-700 hover:bg-gray-700 transition duration-200">
+                    <h5 class="text-lg font-bold text-neon-red">${update.title}</h5>
+                    <p class="text-gray-400 text-sm mt-1">${update.message}</p>
+                    <p class="text-xs text-gray-600 mt-2">${update.date}</p>
+                </div>
+            `).join('');
+
+            return `
+                <div class="bg-gray-900 p-6 rounded-xl shadow-xl border border-gray-700">
+                    <h3 class="text-3xl font-bold text-white mb-4 flex items-center space-x-2">
+                        <span data-lucide="megaphone" class="w-7 h-7 text-neon-red"></span>
+                        <span>GYM ANNOUNCEMENTS</span>
+                    </h3>
+                    <div class="space-y-4 max-h-60 overflow-y-auto pr-2">
+                        ${updatesHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderWorkoutPlanEditor() {
+            const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            
+            const planInputs = daysOfWeek.map(day => {
+                const existingPlan = userData.workoutPlan.find(p => p.day === day);
+                const focus = existingPlan ? existingPlan.focus : '';
+                return `
+                    <div class="flex items-center space-x-3 mb-3">
+                        <label class="w-24 text-gray-300 font-semibold">${day}:</label>
+                        <input type="text" id="plan-${day}" value="${focus}" placeholder="e.g., Chest, Back & Triceps" 
+                               class="flex-grow p-2 bg-gray-800 text-white rounded-lg border border-gray-700 focus:ring-neon-red focus:border-neon-red">
+                    </div>
+                `;
+            }).join('');
+
+            const today = new Date().toLocaleString('en-us', { weekday: 'long' });
+            const todaysFocus = userData.workoutPlan.find(p => p.day === today);
+            const focusText = todaysFocus ? todaysFocus.focus : 'Rest Day or No plan set for today.';
+
+            return `
+                <div class="bg-gray-900 p-6 rounded-xl shadow-xl border border-gray-700">
+                    <h3 class="text-3xl font-bold text-neon-red mb-4 flex items-center space-x-2">
+                        <span data-lucide="calendar-check" class="w-7 h-7"></span>
+                        <span>WEEKLY WORKOUT PLAN</span>
+                    </h3>
+                    <div class="bg-gray-800 p-4 rounded-lg mb-6 border-l-4 border-neon-red">
+                        <p class="text-sm text-gray-400 uppercase">Today is ${today}. Your focus:</p>
+                        <p class="text-xl font-bold text-white">${focusText}</p>
+                    </div>
+
+                    <div class="space-y-2">
+                        ${planInputs}
+                    </div>
+                    
+                    <button onclick="saveWorkoutPlan()" class="w-full mt-6 py-3 bg-neon-red text-white font-bold rounded-lg hover:bg-red-700 transition duration-200 uppercase flex items-center justify-center space-x-2">
+                        <span data-lucide="save" class="w-5 h-5"></span>
+                        <span>Save Weekly Plan</span>
+                    </button>
+                </div>
+            `;
+        }
+
+        function renderProgressTracker() {
+            const progressListHtml = userData.progressTracker
+                .sort((a, b) => new Date(b.date) - new Date(a.date))
+                .slice(0, 5) // Show top 5 recent PRs
+                .map(item => `
+                    <li class="flex justify-between items-center p-3 bg-gray-800 rounded-lg border border-gray-700">
+                        <span class="text-neon-red font-semibold">${item.exercise}</span>
+                        <span class="text-white">${item.weight} kg x ${item.reps} reps</span>
+                        <span class="text-gray-500 text-sm">${item.date}</span>
+                    </li>
+                `).join('');
+
+            return `
+                <div class="bg-gray-900 p-6 rounded-xl shadow-xl border border-gray-700">
+                    <h3 class="text-3xl font-bold text-neon-red mb-4 flex items-center space-x-2">
+                        <span data-lucide="barbell" class="w-7 h-7"></span>
+                        <span>PR TRACKER (PERSONAL RECORDS)</span>
+                    </h3>
+                    
+                    <!-- Input Form -->
+                    <div class="grid grid-cols-4 gap-3 mb-6 p-4 bg-gray-800 rounded-lg">
+                        <input type="date" id="pr-date" value="${new Date().toISOString().slice(0, 10)}" class="col-span-1 p-2 bg-gray-900 text-white rounded-lg border border-gray-700">
+                        <input type="text" id="pr-exercise" placeholder="Exercise" class="col-span-1 p-2 bg-gray-900 text-white rounded-lg border border-gray-700">
+                        <input type="number" id="pr-weight" placeholder="Weight (kg)" class="col-span-1 p-2 bg-gray-900 text-white rounded-lg border border-gray-700">
+                        <input type="number" id="pr-reps" placeholder="Reps" class="col-span-1 p-2 bg-gray-900 text-white rounded-lg border border-gray-700">
+                    </div>
+                    <button onclick="addPersonalRecord()" class="w-full py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition duration-200 uppercase flex items-center justify-center space-x-2">
+                        <span data-lucide="trending-up" class="w-5 h-5"></span>
+                        <span>Log New PR</span>
+                    </button>
+
+                    <!-- PR List -->
+                    <h4 class="text-xl font-bold text-white mt-8 mb-4 border-b border-gray-700 pb-2">Recent Records:</h4>
+                    <ul class="space-y-3">
+                        ${progressListHtml || '<li class="text-gray-500">No records logged yet. Get lifting!</li>'}
+                    </ul>
+                </div>
+            `;
+        }
+
+        // --- DASHBOARD ACTION HANDLERS ---
+        
+        function updateMembershipStatus() {
+            const selectEl = document.getElementById('membership-select');
+            const newStatus = selectEl ? selectEl.value : null;
+            if (newStatus && newStatus !== userData.membershipStatus) {
+                saveUserData({ membershipStatus: newStatus });
+            } else if (newStatus) {
+                alertUser('Membership status is already set to ' + newStatus + '.', 'info');
+            }
+        }
+
+        function saveWorkoutPlan() {
+            const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            const newPlan = daysOfWeek.map(day => {
+                const inputEl = document.getElementById(`plan-${day}`);
+                return { day, focus: inputEl ? inputEl.value.trim() : '' };
+            }).filter(p => p.focus.length > 0);
+
+            if (JSON.stringify(newPlan) !== JSON.stringify(userData.workoutPlan)) {
+                saveUserData({ workoutPlan: newPlan });
+            } else {
+                alertUser('No changes detected in the workout plan.', 'info');
+            }
+        }
+
+        function addPersonalRecord() {
+            const date = document.getElementById('pr-date').value;
+            const exercise = document.getElementById('pr-exercise').value.trim();
+            const weight = parseFloat(document.getElementById('pr-weight').value);
+            const reps = parseInt(document.getElementById('pr-reps').value);
+
+            if (!date || !exercise || isNaN(weight) || isNaN(reps) || weight <= 0 || reps <= 0) {
+                alertUser('Please fill out all fields with valid data.', 'error');
+                return;
+            }
+
+            const newRecord = { date, exercise, weight, reps };
+            const updatedTracker = [...userData.progressTracker, newRecord];
+            
+            saveUserData({ progressTracker: updatedTracker });
+
+            // Clear inputs after successful save
+            document.getElementById('pr-exercise').value = '';
+            document.getElementById('pr-weight').value = '';
+            document.getElementById('pr-reps').value = '';
+        }
+
+        /**
+         * Simulates a payment transaction for a selected membership tier.
+         * On success, updates the user's membershipStatus to 'Active'.
+         * @param {string} tierName - The name of the selected tier (e.g., 'Elite').
+         * @param {HTMLElement} button - The button element that triggered the action.
+         */
+        window.simulatePayment = function(tierName, button) {
+            // Disable button and show loading state
+            button.disabled = true;
+            const iconEl = document.getElementById(`pay-icon-${tierName}`);
+            const textEl = document.getElementById(`pay-text-${tierName}`);
+
+            const originalIconHtml = iconEl.outerHTML;
+            const originalText = textEl.textContent;
+            
+            iconEl.innerHTML = '<div class="spinner"></div>';
+            textEl.textContent = 'Processing...';
+
+            // Simulate API call delay
+            setTimeout(async () => {
+                // Payment mock success (always succeeds for this simulation)
+                const isSuccess = true; 
+
+                if (isSuccess) {
+                    await saveUserData({ 
+                        membershipStatus: 'Active',
+                        currentPlan: tierName,
+                        paymentDate: new Date().toISOString().slice(0, 10)
+                    });
+                    
+                    alertUser(`Payment for ${tierName} successful! Your membership is now active.`, 'success');
+                } else {
+                    alertUser(`Payment for ${tierName} failed. Please try again.`, 'error');
+                    
+                    // Revert button state
+                    iconEl.outerHTML = originalIconHtml;
+                    textEl.textContent = originalText;
+                }
+                
+                button.disabled = false;
+                // Re-render dashboard to show active status change
+                renderDashboard(); 
+
+                // Re-run icon rendering for the whole page after renderDashboard
+                if (typeof window.createIcons === 'function') {
+                    window.createIcons();
+                }
+
+            }, 2500); // 2.5 second mock delay
+        };
+
+        async function handleSignOut() {
+            try {
+                if (auth) {
+                    await firebase.signOut(auth);
+                    await firebase.signInAnonymously(auth); // Re-authenticate anonymously
+                    alertUser('You have been securely signed out.', 'info');
+                    navigate('home');
+                }
+            } catch (error) {
+                console.error("Error signing out:", error);
+                alertUser('Error signing out. Check console.', 'error');
+            }
+        }
+    </script>
+</body>
+</html>
